@@ -1,0 +1,24 @@
+# Terraform files
+*.tfstate
+*.tfstate.backup
+.terraform
+.terraform/**
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# TFplan artifact
+infra/tfplan
+
+# App
+/app/server
+/app/*.zip
+/app/bootstrap
+
+# Git keep
+!.gitkeep
