@@ -11,6 +11,11 @@ variable "github_repo" {
   description = "GitHub repository in org/name format — used to scope the OIDC sub claim in end/"
 }
 
+variable "oidc_provider_arn" {
+  type        = string
+  description = "ARN of the GitHub OIDC provider — used as the Federated principal"
+}
+
 variable "db_secret_arn" {
   type        = string
   description = "ARN of the Secrets Manager secret — scopes the GetSecretValue action"

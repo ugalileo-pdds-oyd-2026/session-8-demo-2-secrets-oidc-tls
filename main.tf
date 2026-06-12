@@ -104,6 +104,23 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+
+# ── GitHub Actions OIDC provider ──────────────────────────────────────────────
+# Registered once per AWS account. Allows GitHub to present short-lived JWT tokens
+# that AWS STS can verify without any stored access keys.
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = ["sts.amazonaws.com"]
+
+  # SHA-1 thumbprint of the GitHub OIDC TLS certificate (stable).
+  # Verified at: https://docs.github.com/en/actions/security-guides/security-hardening-with-openid-connect
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+
+  tags = local.common_tags
+}
+
+
 # ── Secrets module (KMS + Secrets Manager) ────────────────────────────────────
 
 module "secrets" {
@@ -122,6 +139,7 @@ module "iam" {
   project     = var.project
   environment = var.environment
   github_repo = var.github_repo
+  oidc_provider_arn = aws_iam_openid_connect_provider.github.arn
   db_secret_arn     = module.secrets.db_secret_arn
   kms_key_arn       = module.secrets.kms_key_arn
 }

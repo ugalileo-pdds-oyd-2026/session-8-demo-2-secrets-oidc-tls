@@ -89,23 +89,32 @@ resource "aws_iam_instance_profile" "compute" {
   tags = local.tags
 }
 
-# ── CI runner role (GitHub Actions) ───────────────────────────────────────────
-# start/: account-root trust — the insecure "stored key" baseline.
-# end/:   trust replaced with OIDC AssumeRoleWithWebIdentity, scoped to
-#         repo:<org>/<repo>:ref:refs/heads/main using StringEquals (not StringLike).
+# ── CI runner role — OIDC trust (replaces the account-root placeholder) ────────
+#
+# StringEquals (not StringLike) on the `sub` claim — a wildcard here would allow
+# any repository in the org to assume this role.
+#
+# The `aud` condition is required: GitHub's OIDC provider sets audience to
+# "sts.amazonaws.com" by default for aws-actions/configure-aws-credentials.
 
 resource "aws_iam_role" "ci_runner" {
   name = "${local.name_prefix}-ci-runner-role"
   tags = local.tags
 
-  # ⚠️ Account-root trust means any IAM principal in this account can assume this role.
-  # The OIDC upgrade in end/ locks this to a single GitHub repository + branch.
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow"
-      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
-      Action    = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Federated = var.oidc_provider_arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
+        }
+      }
     }]
   })
 }

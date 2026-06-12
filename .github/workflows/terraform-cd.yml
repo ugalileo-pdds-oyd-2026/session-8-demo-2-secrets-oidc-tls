@@ -1,0 +1,47 @@
+name: Terraform CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - ".github/workflows/terraform-cd.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Apply to dev
+    runs-on: ubuntu-latest
+    environment: dev
+
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC — keyless, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: us-east-1
+          # OIDC: GitHub mints a short-lived JWT; aws-actions/configure-aws-credentials
+          # exchanges it for temporary STS credentials scoped to AWS_CI_ROLE_ARN.
+          # No AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY secrets are needed.
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.6"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -var-file=dev.tfvars -auto-approve

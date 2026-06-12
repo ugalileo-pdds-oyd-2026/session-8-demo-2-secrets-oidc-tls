@@ -1,0 +1,85 @@
+name: Terraform CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - ".github/workflows/terraform-ci.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  terraform:
+    name: Validate & Plan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.6"
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -var-file=dev.tfvars -no-color -out=tfplan
+        continue-on-error: true
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Format \`${{ steps.fmt.outcome }}\`
+            #### Terraform Init \`${{ steps.init.outcome }}\`
+            #### Terraform Validate \`${{ steps.validate.outcome }}\`
+            #### Terraform Plan \`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`hcl
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
+            *Pushed by: @${{ github.actor }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Check Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
