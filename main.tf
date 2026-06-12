@@ -104,6 +104,16 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# ── Secrets module (KMS + Secrets Manager) ────────────────────────────────────
+
+module "secrets" {
+  source = "./modules/secrets"
+
+  project     = var.project
+  environment = var.environment
+  db_username = var.db_username
+}
+
 # ── IAM module ────────────────────────────────────────────────────────────────
 
 module "iam" {
@@ -112,6 +122,8 @@ module "iam" {
   project     = var.project
   environment = var.environment
   github_repo = var.github_repo
+  db_secret_arn     = module.secrets.db_secret_arn
+  kms_key_arn       = module.secrets.kms_key_arn
 }
 
 # ── Database module ───────────────────────────────────────────────────────────
@@ -143,11 +155,8 @@ module "compute" {
   alb_target_group_arn  = aws_lb_target_group.app.arn
   instance_profile_name = module.iam.compute_instance_profile_name
 
-  db_host     = module.database.db_endpoint
-  db_name     = var.project
-  db_username = var.db_username
-  # ⚠️ Plaintext password injected at deploy time — stored in terraform.tfstate
-  db_password = var.db_password
+  # Secret name (not a credential) injected into user_data — fetched by boto3 at runtime
+  db_secret_name = module.secrets.db_secret_name
 }
 
 # ── Outputs ───────────────────────────────────────────────────────────────────

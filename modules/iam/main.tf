@@ -49,9 +49,38 @@ resource "aws_iam_policy" "compute" {
   })
 }
 
+resource "aws_iam_policy" "read_db_secret" {
+  name = "${local.name_prefix}-read-db-secret"
+  tags = local.tags
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "GetSecret"
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Resource = [var.db_secret_arn]   # scoped to this secret only
+      },
+      {
+        Sid    = "DecryptWithCMK"
+        Effect = "Allow"
+        Action = ["kms:Decrypt", "kms:DescribeKey"]
+        Resource = [var.kms_key_arn]     # scoped to this key only
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy_attachment" "compute" {
   role       = aws_iam_role.compute.name
   policy_arn = aws_iam_policy.compute.arn
+}
+
+# The attachment is the critical line — a defined-but-unattached policy has zero effect.
+resource "aws_iam_role_policy_attachment" "compute_read_secret" {
+  role       = aws_iam_role.compute.name
+  policy_arn = aws_iam_policy.read_db_secret.arn
 }
 
 resource "aws_iam_instance_profile" "compute" {

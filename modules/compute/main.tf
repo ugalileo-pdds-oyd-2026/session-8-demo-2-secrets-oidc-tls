@@ -22,37 +22,43 @@ locals {
     ManagedBy   = "terraform"
   }
 
-  # ⚠️ Plaintext password injected into user_data → stored in terraform.tfstate
+  # DB_PASSWORD env var is GONE.
+  # DB_SECRET_NAME (the Secrets Manager secret name) is safe to inject — it is not a credential.
   user_data = <<-EOF
     #!/bin/bash
     set -e
     dnf update -y
     dnf install -y python3 python3-pip
 
+    pip3 install boto3 psycopg2-binary
+
     mkdir -p /opt/media-app
 
     cat > /opt/media-app/main.py << 'PYEOF'
-    import json, os
+    import json, os, boto3
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
     PORT = int(os.environ.get("PORT", "8080"))
 
-    def get_db_config():
-        return {
-            "host":     os.environ.get("DB_HOST", "not-set"),
-            "port":     int(os.environ.get("DB_PORT", "5432")),
-            "dbname":   os.environ.get("DB_NAME", "not-set"),
-            "user":     os.environ.get("DB_USER", "appuser"),
-            "password": os.environ.get("DB_PASSWORD", "not-set"),  # ⚠️ plaintext
-        }
+    def fetch_db_config():
+        secret_name = os.environ["DB_SECRET_NAME"]
+        client = boto3.client("secretsmanager")
+        response = client.get_secret_value(SecretId=secret_name)
+        creds = json.loads(response["SecretString"])
+        return {"host": creds["host"], "port": int(creds.get("port", 5432)),
+                "dbname": creds["dbname"], "user": creds["username"], "password": creds["password"]}
+
+    DB_CONFIG = fetch_db_config()
+    print(f"Credentials loaded from: {os.environ['DB_SECRET_NAME']}")
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/health":
                 self._respond(200, {"status": "ok"})
             elif self.path == "/config":
-                cfg = get_db_config(); cfg["password"] = "***"
-                self._respond(200, {"credential_source": "environment_variable", "db": cfg})
+                cfg = {**DB_CONFIG, "password": "***"}
+                self._respond(200, {"credential_source": "secrets_manager",
+                                    "secret_name": os.environ["DB_SECRET_NAME"], "db": cfg})
             else:
                 self._respond(404, {"error": "not found"})
         def _respond(self, s, b):
@@ -64,7 +70,6 @@ locals {
     HTTPServer(("", PORT), Handler).serve_forever()
     PYEOF
 
-    # ⚠️ Plaintext DB credentials in environment — visible in process list and state
     cat > /etc/systemd/system/media-app.service << SVCEOF
     [Unit]
     Description=Media App
@@ -72,10 +77,7 @@ locals {
 
     [Service]
     Environment=PORT=8080
-    Environment=DB_HOST=${var.db_host}
-    Environment=DB_NAME=${var.db_name}
-    Environment=DB_USER=${var.db_username}
-    Environment=DB_PASSWORD=${var.db_password}
+    Environment=DB_SECRET_NAME=${var.db_secret_name}
     ExecStart=/usr/bin/python3 /opt/media-app/main.py
     Restart=always
 

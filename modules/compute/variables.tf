@@ -26,25 +26,8 @@ variable "instance_profile_name" {
   description = "IAM instance profile name from the iam module"
 }
 
-variable "db_host" {
+# db_password is GONE. The app fetches credentials from Secrets Manager at runtime.
+variable "db_secret_name" {
   type        = string
-  description = "RDS endpoint — injected into user_data as DB_HOST"
-}
-
-variable "db_name" {
-  type        = string
-  description = "Database name"
-}
-
-variable "db_username" {
-  type        = string
-  description = "Database username"
-}
-
-# ⚠️  Plaintext password — injected into user_data and stored in terraform.tfstate.
-# Removed in end/ (replaced by db_secret_name).
-variable "db_password" {
-  type        = string
-  sensitive   = true
-  description = "Database password — plaintext. Eliminated by Secrets Manager in end/."
+  description = "Secrets Manager secret name — injected as DB_SECRET_NAME (not a credential)"
 }

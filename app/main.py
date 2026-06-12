@@ -1,32 +1,43 @@
 #!/usr/bin/env python3
 """
-media-app — minimal HTTP server for the Demo 2 start/ baseline.
+media-app — end/ version: fetches DB credentials from AWS Secrets Manager at startup.
 
-Reads database credentials from ENVIRONMENT VARIABLES injected via EC2 user_data.
-This is the INSECURE baseline the demo closes.
+Key difference from start/:
+  BEFORE  os.environ.get("DB_PASSWORD")            ← plaintext in state + env
+  AFTER   boto3 get_secret_value(SecretId=name)    ← runtime fetch, never in state
 
-Security gap:
-  - DB_PASSWORD arrives through Terraform user_data  → lands in terraform.tfstate in cleartext
-  - Anyone with read access to state owns the database password
+The only thing in the environment now is DB_SECRET_NAME (the secret's name/ARN),
+which is safe to log and commit — it is NOT a credential.
+The instance profile's IAM policy grants secretsmanager:GetSecretValue + kms:Decrypt
+scoped to this specific secret and KMS key.
 """
 
 import json
 import os
+import boto3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT = int(os.environ.get("PORT", "8080"))
 
 
-def get_db_config():
-    """Return DB connection config — sourced from plaintext environment variables."""
+def fetch_db_config():
+    """Retrieve DB credentials from Secrets Manager at startup (not from env vars)."""
+    secret_name = os.environ["DB_SECRET_NAME"]  # the secret name — safe to expose
+    client = boto3.client("secretsmanager")
+    response = client.get_secret_value(SecretId=secret_name)
+    creds = json.loads(response["SecretString"])
     return {
-        "host": os.environ.get("DB_HOST", "not-set"),
-        "port": int(os.environ.get("DB_PORT", "5432")),
-        "dbname": os.environ.get("DB_NAME", "not-set"),
-        "user": os.environ.get("DB_USER", "appuser"),
-        # ⚠️  Plaintext password — injected via Terraform user_data, stored in state
-        "password": os.environ.get("DB_PASSWORD", "not-set"),
+        "host":     creds["host"],
+        "port":     int(creds.get("port", 5432)),
+        "dbname":   creds["dbname"],
+        "user":     creds["username"],
+        "password": creds["password"],  # fetched at runtime — never in terraform.tfstate
     }
+
+
+# Credentials are loaded once at startup. A rotation agent would restart the process.
+DB_CONFIG = fetch_db_config()
+print(f"Credentials loaded from Secrets Manager: {os.environ['DB_SECRET_NAME']}")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -34,10 +45,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._respond(200, {"status": "ok"})
         elif self.path == "/config":
-            cfg = get_db_config()
-            cfg["password"] = "***"   # masked in response, but still in process env + state
+            cfg = {**DB_CONFIG, "password": "***"}
             self._respond(200, {
-                "credential_source": "environment_variable",  # ← the problem
+                "credential_source": "secrets_manager",   # ← the fix
+                "secret_name": os.environ["DB_SECRET_NAME"],
                 "db": cfg,
             })
         else:
@@ -52,10 +63,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def log_message(self, fmt, *args):
-        pass  # suppress access-log noise in demo output
+        pass
 
 
 if __name__ == "__main__":
     print(f"Starting on :{PORT}")
-    print("⚠️  Credential source: DB_PASSWORD environment variable (plaintext in state)")
     HTTPServer(("", PORT), Handler).serve_forever()
