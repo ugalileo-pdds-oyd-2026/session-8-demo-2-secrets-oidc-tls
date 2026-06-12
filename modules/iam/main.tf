@@ -11,8 +11,6 @@ locals {
 data "aws_caller_identity" "current" {}
 
 # ── Compute role (EC2 instance profile) ───────────────────────────────────────
-# Attached to the app EC2 instance. Grants CloudWatch Logs write access.
-# In end/, this role gains a scoped secretsmanager:GetSecretValue + kms:Decrypt policy.
 
 resource "aws_iam_role" "compute" {
   name = "${local.name_prefix}-compute-role"
@@ -49,6 +47,21 @@ resource "aws_iam_policy" "compute" {
   })
 }
 
+resource "aws_iam_role_policy_attachment" "compute" {
+  role       = aws_iam_role.compute.name
+  policy_arn = aws_iam_policy.compute.arn
+}
+
+resource "aws_iam_instance_profile" "compute" {
+  name = "${local.name_prefix}-compute-profile"
+  role = aws_iam_role.compute.name
+  tags = local.tags
+}
+
+# ── Secret-read policy — scoped to the specific secret + KMS key ───────────────
+# This policy allows the EC2 app to call GetSecretValue at runtime.
+# It is ATTACHED to the compute role below — not just defined (a common oversight).
+
 resource "aws_iam_policy" "read_db_secret" {
   name = "${local.name_prefix}-read-db-secret"
   tags = local.tags
@@ -59,34 +72,32 @@ resource "aws_iam_policy" "read_db_secret" {
       {
         Sid    = "GetSecret"
         Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-        Resource = [var.db_secret_arn]   # scoped to this secret only
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+        ]
+        # Scoped to the exact secret ARN — not "Resource": ["*"]
+        Resource = [var.db_secret_arn]
       },
       {
         Sid    = "DecryptWithCMK"
         Effect = "Allow"
-        Action = ["kms:Decrypt", "kms:DescribeKey"]
-        Resource = [var.kms_key_arn]     # scoped to this key only
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+        ]
+        # Scoped to the exact KMS key ARN
+        Resource = [var.kms_key_arn]
       }
     ]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "compute" {
-  role       = aws_iam_role.compute.name
-  policy_arn = aws_iam_policy.compute.arn
-}
-
-# The attachment is the critical line — a defined-but-unattached policy has zero effect.
+# Attach the secret-read policy to the compute role.
+# Without this attachment the policy has no effect — the role would still be denied.
 resource "aws_iam_role_policy_attachment" "compute_read_secret" {
   role       = aws_iam_role.compute.name
   policy_arn = aws_iam_policy.read_db_secret.arn
-}
-
-resource "aws_iam_instance_profile" "compute" {
-  name = "${local.name_prefix}-compute-profile"
-  role = aws_iam_role.compute.name
-  tags = local.tags
 }
 
 # ── CI runner role — OIDC trust (replaces the account-root placeholder) ────────

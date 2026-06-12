@@ -22,10 +22,15 @@ variable "db_username" {
   default = "appuser"
 }
 
-# ⚠️  Plaintext DB password — the security gap this demo closes.
-# This value is passed through user_data and lands in terraform.tfstate in cleartext.
-variable "db_password" {
+# db_password is GONE — the initial secret value is managed in modules/secrets.
+# No plaintext credential exists as a Terraform variable in end/.
+
+variable "domain_name" {
   type        = string
-  sensitive   = true
-  description = "Database password — stored in state. Replaced by Secrets Manager in end/."
+  description = "Domain name for the ACM TLS certificate (e.g. app.example.com)"
+}
+
+variable "route53_zone_id" {
+  type        = string
+  description = "Route 53 hosted zone ID for DNS validation records"
 }

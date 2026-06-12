@@ -9,7 +9,6 @@ locals {
 }
 
 # ── DB security group ─────────────────────────────────────────────────────────
-# Port 5432 is open ONLY from the app security group — no public access.
 
 resource "aws_security_group" "db" {
   name        = "${local.name_prefix}-db-sg"
@@ -42,8 +41,8 @@ resource "aws_db_subnet_group" "main" {
 }
 
 # ── RDS PostgreSQL instance ───────────────────────────────────────────────────
-# Storage encryption is OFF in start/ — enabling it with a KMS CMK is part of
-# the upgrade demonstrated in end/.
+# Storage encryption is now ON, using the KMS CMK from modules/secrets.
+# The password is NOT passed as a variable — it is managed in Secrets Manager.
 
 resource "aws_db_instance" "main" {
   identifier        = "${local.name_prefix}-postgres"
@@ -55,15 +54,22 @@ resource "aws_db_instance" "main" {
 
   db_name  = var.db_name
   username = var.db_username
-  password = var.db_password # ⚠️ plaintext in state — removed in end/
+  password = var.db_initial_password # set once; rotation is handled via Secrets Manager
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
   publicly_accessible    = false
   skip_final_snapshot    = true
 
-  # Storage encryption is OFF in start/ — the gap KMS closes in end/
-  storage_encrypted = false
+  # Storage encrypted with the KMS CMK created in modules/secrets
+  storage_encrypted = true
+  kms_key_id        = var.kms_key_arn
+
+  lifecycle {
+    # Prevent Terraform from replacing the instance if the password is rotated
+    # outside Terraform (via the Secrets Manager rotation Lambda).
+    ignore_changes = [password]
+  }
 
   tags = local.tags
 }

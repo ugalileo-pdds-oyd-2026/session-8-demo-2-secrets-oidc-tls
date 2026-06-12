@@ -31,8 +31,13 @@ variable "db_username" {
   description = "Master username"
 }
 
-variable "db_password" {
+variable "db_initial_password" {
   type        = string
   sensitive   = true
-  description = "Master password — plaintext in state. Rotated via Secrets Manager in end/."
+  description = "Initial master password — set once; thereafter managed via Secrets Manager rotation."
+}
+
+variable "kms_key_arn" {
+  type        = string
+  description = "KMS CMK ARN for storage encryption"
 }

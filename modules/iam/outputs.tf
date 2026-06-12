@@ -4,7 +4,7 @@ output "compute_role_arn" {
 }
 
 output "compute_instance_profile_name" {
-  description = "Name of the EC2 instance profile — pass to aws_instance.iam_instance_profile"
+  description = "Name of the EC2 instance profile"
   value       = aws_iam_instance_profile.compute.name
 }
 

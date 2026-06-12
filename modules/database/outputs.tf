@@ -1,10 +1,10 @@
 output "db_endpoint" {
-  description = "RDS endpoint hostname — passed to the compute module as DB_HOST"
+  description = "RDS endpoint hostname"
   value       = aws_db_instance.main.address
 }
 
 output "db_port" {
-  description = "RDS port (always 5432 for PostgreSQL)"
+  description = "RDS port"
   value       = aws_db_instance.main.port
 }
 
